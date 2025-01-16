@@ -43,12 +43,12 @@ export const AppointmentForm = ({
   const form = useForm<z.infer<typeof AppointmentFormValidation>>({
     resolver: zodResolver(AppointmentFormValidation),
     defaultValues: {
-      primaryPhysician: appointment ? appointment.primaryPhysician : "",
+      primaryPhysician: appointment?.primaryPhysician || "",
       schedule: appointment ? new Date(appointment.schedule) : new Date(),
-      reason: appointment ? appointment.reason : "",
+      reason: appointment?.reason || "",
       note: appointment?.note || "",
       cancellationReason: appointment?.cancellationReason || "",
-      timeZone: appointment?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone: appointment?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone, // Added timeZone
     },
   });
 
@@ -57,7 +57,7 @@ export const AppointmentForm = ({
   ) => {
     setIsLoading(true);
 
-    let status;
+    let status: "pending" | "scheduled" | "cancelled";
     switch (type) {
       case "schedule":
         status = "scheduled";
@@ -71,18 +71,15 @@ export const AppointmentForm = ({
 
     try {
       if (type === "create" && patientId) {
-        const newAppointmentData = {
+        const newAppointment = await createAppointment({
           userId,
           patient: patientId,
           primaryPhysician: values.primaryPhysician,
           schedule: new Date(values.schedule),
           reason: values.reason!,
-          status: status as Status,
+          status,
           note: values.note,
-          timeZone: values.timeZone,
-        };
-
-        const newAppointment = await createAppointment(newAppointmentData);
+        });
 
         if (newAppointment) {
           form.reset();
@@ -90,44 +87,37 @@ export const AppointmentForm = ({
             `/patients/${userId}/new-appointment/success?appointmentId=${newAppointment.$id}`
           );
         }
-      } else {
-        const appointmentToUpdate = {
+      } else if (appointment) {
+        const updatedAppointment = await updateAppointment({
           userId,
-          appointmentId: appointment?.$id!,
+          appointmentId: appointment.$id,
           appointment: {
             primaryPhysician: values.primaryPhysician,
             schedule: new Date(values.schedule),
-            status: status as Status,
+            status,
             cancellationReason: values.cancellationReason,
-            timeZone: values.timeZone,
           },
           type,
-        };
-
-        const updatedAppointment = await updateAppointment(appointmentToUpdate);
+        });
 
         if (updatedAppointment) {
-          setOpen && setOpen(false);
+          setOpen?.(false);
           form.reset();
         }
       }
     } catch (error) {
-      console.error("Error handling appointment submission:", error);
+      console.error(error);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
-  let buttonLabel;
-  switch (type) {
-    case "cancel":
-      buttonLabel = "Cancel Appointment";
-      break;
-    case "schedule":
-      buttonLabel = "Schedule Appointment";
-      break;
-    default:
-      buttonLabel = "Submit Appointment";
-  }
+  const buttonLabel =
+    type === "cancel"
+      ? "Cancel Appointment"
+      : type === "schedule"
+      ? "Schedule Appointment"
+      : "Submit Appointment";
 
   return (
     <Form {...form}>
@@ -176,7 +166,9 @@ export const AppointmentForm = ({
             />
 
             <div
-              className={`flex flex-col gap-6  ${type === "create" && "xl:flex-row"}`}
+              className={`flex flex-col gap-6 ${
+                type === "create" && "xl:flex-row"
+              }`}
             >
               <CustomFormField
                 fieldType={FormFieldType.TEXTAREA}
